@@ -30,4 +30,5 @@ func setupRoutes(app *fiber.App) {
 	app.Post("/api/register", handlers.RegisterStudentsToTeacher)
 	app.Get("/api/commonstudents", handlers.GetCommonStudents)
 	app.Post("/api/suspend", handlers.SuspendStudent)
+	app.Post("/api/retrievefornotifications", handlers.RetrieveStudentsForNotifications)
 }

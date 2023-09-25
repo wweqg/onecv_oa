@@ -3,6 +3,8 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"regexp"
+    "strings"
 	"github.com/gofiber/fiber/v2"
 	"github.com/wweqg/onecv_oa/backend/database"
 	"github.com/wweqg/onecv_oa/backend/models"
@@ -131,60 +133,122 @@ func SuspendStudent(c *fiber.Ctx) error {
 		})
 	}
 
-	// Suspend the student
 	db.Model(&student).Update("suspend", true)
 
 	return c.SendStatus(http.StatusNoContent)
 }
 
-// // RetrieveStudentsForNotifications retrieves a list of students who can receive a given notification.
-// func RetrieveStudentsForNotifications(c *fiber.Ctx) error {
-// 	db := c.Locals("db").(*gorm.DB)
+func RetrieveStudentsForNotifications(c *fiber.Ctx) error {
+	db := database.DB.Db
 
-// 	// Define request structure
-// 	var request struct {
-// 		Teacher      string `json:"teacher"`
-// 		Notification string `json:"notification"`
-// 	}
+	var request struct {
+		Teacher      string `json:"teacher"`
+		Notification string `json:"notification"`
+	}
 
-// 	// Parse the request body into the request struct
-// 	if err := c.BodyParser(&request); err != nil {
-// 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request payload"})
-// 	}
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid request payload",
+		})
+	}
 
-// 	// Find the teacher by email
-// 	var teacher models.Teacher
-// 	if err := db.Where("email = ?", request.Teacher).First(&teacher).Error; err != nil {
-// 		return c.Status(http.StatusNotFound).JSON(fiber.Map{"message": "Teacher not found"})
-// 	}
+	var teacher models.Teacher
+	if err := db.Where("email = ?", request.Teacher).First(&teacher).Error; err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{
+			"message": "Teacher not found",
+		})
+	}
 
-// 	// Parse the notification text to extract mentioned student emails
-// 	mentionedStudents := extractMentionedStudents(request.Notification)
+	mentionedStudents := extractMentionedStudents(request.Notification)
 
-// 	// Find the students who can receive the notification
-// 	var recipients []models.Student
-// 	db.Table("students").
-// 		Joins("JOIN teacher_students ON students.id = teacher_students.student_id").
-// 		Joins("JOIN teachers ON teacher_students.teacher_id = teachers.id").
-// 		Where("teachers.email = ?", teacher.Email).
-// 		Where("students.suspend = ?", false).
-// 		Where("students.email IN (?)", mentionedStudents).
-// 		Find(&recipients)
+	var recipient_1 []models.Student
 
-// 	// Extract the recipient student emails
-// 	recipientEmails := []string{}
-// 	for _, recipient := range recipients {
-// 		recipientEmails = append(recipientEmails, recipient.Email)
-// 	}
+	var recipient_2 []models.Student
 
-// 	return c.JSON(fiber.Map{"recipients": recipientEmails})
-// }
+	var recipient_3 []models.Student
 
-// // Helper function to extract mentioned student emails from notification text
-// func extractMentionedStudents(notificationText string) []string {
-// 	// Implement your logic to extract mentioned student emails here
-// 	// For example, you can use regular expressions to find email addresses prefixed with '@'
-// 	// and extract them into a slice.
-// 	// Return the list of mentioned student emails.
-// 	return []string{} // Replace with the actual implementation
-// }
+	// Subquery 2: Students registered with this teacher
+	db.Table("students").
+		Joins("JOIN teacher_students ON students.id = teacher_students.student_id").
+		Joins("JOIN teachers ON teacher_students.teacher_id = teachers.id").
+		Where("teachers.email = ?", teacher.Email).
+		Find(&recipient_1)
+
+	// Subquery 2: Students mentioned in the notification
+	db.Table("students").
+		Where("students.email IN (?)", mentionedStudents).
+		Find(&recipient_2)
+
+	// Subquery 3: Students not suspended
+	db.Table("students").
+		Where("students.suspend = ?", false).
+		Find(&recipient_3)
+
+	recipients := unionAndIntersect(recipient_1, recipient_2, recipient_3)
+
+	recipientEmails := []string{}
+	for _, recipient := range recipients {
+		recipientEmails = append(recipientEmails, recipient.Email)
+	}
+
+	return c.Status(http.StatusOK).JSON(fiber.Map{
+		"recipients": recipientEmails,
+	})
+}
+
+func unionAndIntersect(s1, s2, s3 []models.Student) []models.Student {
+    // Convert slices to sets
+    set1 := make(map[string]bool)
+    set2 := make(map[string]bool)
+    set3 := make(map[string]bool)
+
+    for _, student := range s1 {
+        set1[student.Email] = true
+    }
+
+    for _, student := range s2 {
+        set2[student.Email] = true
+    }
+
+    for _, student := range s3 {
+        set3[student.Email] = true
+    }
+
+    // Perform union of set1 and set2
+    unionSet := make(map[string]bool)
+    for k := range set1 {
+        unionSet[k] = true
+    }
+    for k := range set2 {
+        unionSet[k] = true
+    }
+
+    // Perform intersection of unionSet and set3
+    result := []models.Student{}
+    for k := range unionSet {
+        if set3[k] {
+            result = append(result, models.Student{Email: k})
+        }
+    }
+
+    return result
+}
+
+
+func extractMentionedStudents(notificationText string) []string {
+
+	//regular expression to find email addresses prefixed with '@'
+	mentionRegex := regexp.MustCompile(`@([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})`)
+	
+	// Find all email mentions in the notification text
+	matches := mentionRegex.FindAllString(notificationText, -1)
+	
+	// Extract email addresses from mentions (remove '@' symbol)
+	mentionedStudents := []string{}
+	for _, match := range matches {
+		email := strings.TrimPrefix(match, "@")
+		mentionedStudents = append(mentionedStudents, email)
+	}
+	
+	return mentionedStudents
+}
