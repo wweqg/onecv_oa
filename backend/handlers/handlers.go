@@ -78,3 +78,36 @@ func RegisterStudentsToTeacher(c *fiber.Ctx) error {
 
 	return c.SendStatus(http.StatusNoContent)
 }
+
+func GetCommonStudents(c *fiber.Ctx) error {
+	db := database.DB.Db
+
+	// Get the teacher emails from the query parameters
+	teacherEmails := c.Query("teacher")
+
+	// Ensure at least one teacher email is provided
+	if len(teacherEmails) == 0 {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"message": "Missing 'teacher' query parameter",
+		})
+	}
+
+	var commonStudents []models.Student
+	db.Table("students").
+		Joins("JOIN teacher_students ON students.id = teacher_students.student_id").
+		Joins("JOIN teachers ON teacher_students.teacher_id = teachers.id").
+		Where("teachers.email IN (?)", teacherEmails).
+		Group("students.id").
+		Find(&commonStudents)
+
+	// Extract the common student emails
+	commonStudentEmails := []string{}
+	for _, student := range commonStudents {
+		commonStudentEmails = append(commonStudentEmails, student.Email)
+	}
+
+	return c.Status(http.StatusOK).JSON(fiber.Map{
+		"students": commonStudentEmails,
+	})
+}
+

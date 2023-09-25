@@ -28,4 +28,5 @@ func setupRoutes(app *fiber.App) {
 	app.Delete("/api/students/:email", handlers.DeleteTeacher)
 
 	app.Post("/api/register", handlers.RegisterStudentsToTeacher)
+	app.Get("/api/commonstudents", handlers.GetCommonStudents)
 }
