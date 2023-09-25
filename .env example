@@ -1,0 +1,5 @@
+DATABASE_NAME=onecv_oa_backend
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres
+DATABASE_HOST=postgres_db
+DATABASE_PORT=5432
